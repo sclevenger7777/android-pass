@@ -64,5 +64,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: proton-pass-nogms-prod-debug-apk
-          path: app/build/outputs/apk/nogms/prod/debug/*.apk
+          path: app/build/outputs/**/**/*.apk
           if-no-files-found: error
