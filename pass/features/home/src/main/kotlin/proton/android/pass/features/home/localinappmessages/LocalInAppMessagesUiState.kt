@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,12 +16,12 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.data.api.usecases.inappmessages
+package proton.android.pass.features.home.localinappmessages
 
-import kotlinx.coroutines.flow.Flow
-import me.proton.core.domain.entity.UserId
-import proton.android.pass.domain.inappmessages.InAppMessage
+import proton.android.pass.domain.ShareId
 
-interface ObserveDeliverableBannerInAppMessages {
-    operator fun invoke(userId: UserId? = null, refresh: Boolean = false): Flow<List<InAppMessage.Remote.Banner>>
+sealed interface LocalInAppMessagesEvent {
+    data object Unknown : LocalInAppMessagesEvent
+    data class OpenSLSyncSettings(val shareId: ShareId?) : LocalInAppMessagesEvent
+    data object RequestNotificationPermission : LocalInAppMessagesEvent
 }
