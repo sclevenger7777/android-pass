@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,15 +16,21 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.features.itemcreate.login
+package proton.android.pass.data.fakes.url
 
-sealed interface WebsiteSectionEvent {
-    data class WebsiteValueChanged(
-        val value: String,
-        val index: Int
-    ) : WebsiteSectionEvent
+import proton.android.pass.data.api.url.HostInfo
+import proton.android.pass.data.api.url.HostParser
+import javax.inject.Inject
+import javax.inject.Singleton
 
-    data object AddWebsite : WebsiteSectionEvent
-    data class RemoveWebsite(val index: Int) : WebsiteSectionEvent
-    data class OpenAutofillSuggestions(val index: Int) : WebsiteSectionEvent
+@Singleton
+class FakeHostParser @Inject constructor() : HostParser {
+
+    private var result: Result<HostInfo> = Result.failure(NotImplementedError("FakeHostParser not configured"))
+
+    fun setResult(value: Result<HostInfo>) {
+        result = value
+    }
+
+    override fun parse(url: String): Result<HostInfo> = result
 }
