@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,12 +16,16 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.features.vault.bottomsheet.folders
+package proton.android.pass.data.api.usecases.folders
 
-sealed interface FolderOptionsUserEvent {
-    data object OnCreateSubFolder : FolderOptionsUserEvent
-    data object OnMoveFolder : FolderOptionsUserEvent
-    data object OnMoveAllItemsInFolder : FolderOptionsUserEvent
-    data object OnRenameFolder : FolderOptionsUserEvent
-    data object OnDeleteFolder : FolderOptionsUserEvent
+import proton.android.pass.domain.FolderId
+import proton.android.pass.domain.ShareId
+
+interface MoveAllItemsInFolder {
+    suspend operator fun invoke(
+        shareId: ShareId,
+        folderId: FolderId,
+        destShareId: ShareId,
+        destFolderId: FolderId?
+    )
 }
