@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,32 +16,26 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.files.api
+package proton.android.pass.data.impl.fakes
 
+import me.proton.core.crypto.common.keystore.EncryptedByteArray
 import me.proton.core.domain.entity.UserId
+import proton.android.pass.data.api.crypto.GetItemKey
 import proton.android.pass.domain.ItemId
 import proton.android.pass.domain.ShareId
-import proton.android.pass.domain.attachments.PersistentAttachmentId
-import java.io.File
-import java.net.URI
+import proton.android.pass.domain.key.ItemKey
 
-interface FileUriGenerator {
-    suspend fun generate(fileType: FileType): URI
-    suspend fun getDirectoryForFileType(fileType: FileType): File
-    fun getFileProviderUri(file: File): URI
-    suspend fun getShareTempDirectory(): File
-    fun getAttachmentPipeUri(
+class FakeGetItemKey(
+    private val key: ItemKey = ItemKey(
+        rotation = 1L,
+        key = EncryptedByteArray(ByteArray(32) { it.toByte() } + byteArrayOf(0xCA.toByte(), 0xFE.toByte())),
+        responseKey = "test-key"
+    )
+) : GetItemKey {
+
+    override suspend fun invoke(
         userId: UserId,
         shareId: ShareId,
-        itemId: ItemId,
-        persistentId: PersistentAttachmentId,
-        mimeType: String
-    ): URI
-
-    companion object {
-        const val ATTACHMENT_PIPE_AUTHORITY_SUFFIX = "attachmentprovider"
-        const val ATTACHMENT_PIPE_PATH = "attachment"
-        const val ATTACHMENT_PIPE_MIME_PARAM = "mimeType"
-    }
+        itemId: ItemId
+    ): ItemKey = key
 }
-

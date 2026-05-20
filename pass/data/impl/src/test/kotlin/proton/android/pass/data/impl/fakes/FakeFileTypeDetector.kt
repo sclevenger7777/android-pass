@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,9 +16,15 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.files.api
+package proton.android.pass.data.impl.fakes
 
-enum class FilesDirectories(val value: String) {
-    Attachments("attachments"),
-    AttachmentsEnc("attachments_enc")
+import proton.android.pass.commonrust.api.FileType
+import proton.android.pass.commonrust.api.FileTypeDetector
+import proton.android.pass.commonrust.api.MimeType
+
+class FakeFileTypeDetector : FileTypeDetector {
+
+    override fun getMimeTypeFromBytes(bytes: ByteArray): MimeType = MimeType("application/octet-stream")
+
+    override fun getFileTypeFromMimeType(mimeType: MimeType): FileType = FileType.Unknown
 }

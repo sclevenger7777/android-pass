@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,9 +16,12 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.files.api
+package proton.android.pass.data.impl.fakes
 
-enum class FilesDirectories(val value: String) {
-    Attachments("attachments"),
-    AttachmentsEnc("attachments_enc")
+import proton.android.pass.data.impl.repositories.LegacyAttachmentsDirProvider
+import java.io.File
+
+class FakeLegacyAttachmentsDirProvider(private val dir: File) : LegacyAttachmentsDirProvider {
+
+    override fun getLegacyDir(): File = dir
 }
