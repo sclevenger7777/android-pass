@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,25 +16,16 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.data.fakes.usecases
+package proton.android.pass.data.api.usecases.defaultvault
 
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import proton.android.pass.common.api.None
 import proton.android.pass.common.api.Option
-import proton.android.pass.data.api.usecases.defaultvault.ObserveDefaultVault
-import proton.android.pass.data.api.usecases.defaultvault.VaultWithFolder
-import javax.inject.Inject
-import javax.inject.Singleton
+import proton.android.pass.domain.FolderId
+import proton.android.pass.domain.ShareId
+import proton.android.pass.domain.VaultWithItemCount
 
-@Singleton
-class FakeObserveDefaultVault @Inject constructor() : ObserveDefaultVault {
-
-    private val flow = MutableStateFlow<Option<VaultWithFolder>>(None)
-
-    fun emitValue(value: Option<VaultWithFolder>) {
-        flow.tryEmit(value)
-    }
-
-    override fun invoke(): Flow<Option<VaultWithFolder>> = flow
+data class VaultWithFolder(
+    val vault: VaultWithItemCount,
+    val folderId: Option<FolderId>
+) {
+    val shareId: ShareId get() = vault.vault.shareId
 }
