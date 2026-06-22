@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -16,10 +16,11 @@
  * along with Proton Pass.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package proton.android.pass.crypto.impl
+package proton.android.pass.data.impl.extensions
 
-object Constants {
-    const val ITEM_CFV = 8
-    const val ITEM_CFV_WITHOUT_URL_MATCHING = 7
-    const val FOLDER_CONTENT_FORMAT_VERSION = 1
-}
+import kotlinx.coroutines.flow.first
+import proton.android.pass.preferences.FeatureFlag
+import proton.android.pass.preferences.FeatureFlagsPreferencesRepository
+
+internal suspend fun FeatureFlagsPreferencesRepository.isDomainMatchingEnabled(): Boolean =
+    get<Boolean>(FeatureFlag.PASS_AUTOFILL_URL_ADVANCED_MODES).first()
