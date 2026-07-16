@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 Proton AG
+ * Copyright (c) 2026 Proton AG
  * This file is part of Proton AG and Proton Pass.
  *
  * Proton Pass is free software: you can redistribute it and/or modify
@@ -18,15 +18,20 @@
 
 package proton.android.pass.features.profile
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
+import androidx.compose.ui.unit.dp
 import me.proton.core.compose.theme.ProtonTheme
 import me.proton.core.compose.theme.defaultSmallWeak
 import proton.android.pass.commonui.api.PassTheme
@@ -37,35 +42,45 @@ import proton.android.pass.composecomponents.impl.form.PassDivider
 import proton.android.pass.composecomponents.impl.setting.SettingOption
 
 @Composable
-fun HelpCenterProfileSection(
+internal fun SpreadTheWordSection(
     modifier: Modifier = Modifier,
-    onFeedbackClick: () -> Unit,
-    onImportExportClick: () -> Unit,
-    onTutorialClick: () -> Unit
+    onTellAFriendClick: () -> Unit,
+    onRateAppClick: () -> Unit
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Spacing.medium)) {
         Text(
-            text = stringResource(R.string.profile_help_center),
+            text = stringResource(R.string.profile_spread_the_word),
             style = ProtonTheme.typography.defaultSmallWeak
         )
         Column(
             modifier = Modifier.roundedContainerNorm()
         ) {
             SettingOption(
-                text = stringResource(R.string.profile_option_feedback),
-                onClick = onFeedbackClick
+                text = stringResource(R.string.profile_option_tell_a_friend),
+                leadingIcon = {
+                    Image(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .padding(end = Spacing.small),
+                        painter = painterResource(R.drawable.ic_tell_a_friend),
+                        contentDescription = null
+                    )
+                },
+                onClick = onTellAFriendClick
             )
             PassDivider()
             SettingOption(
-                text = stringResource(R.string.profile_option_import_export),
-                isLink = true,
-                onClick = onImportExportClick
-            )
-            PassDivider()
-            SettingOption(
-                text = stringResource(R.string.profile_option_tutorial),
-                isLink = true,
-                onClick = onTutorialClick
+                text = stringResource(R.string.profile_option_rating),
+                leadingIcon = {
+                    Image(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .padding(end = Spacing.small),
+                        painter = painterResource(R.drawable.ic_rate),
+                        contentDescription = null
+                    )
+                },
+                onClick = onRateAppClick
             )
         }
     }
@@ -73,13 +88,12 @@ fun HelpCenterProfileSection(
 
 @Preview
 @Composable
-fun HelpCenterSectionPreview(@PreviewParameter(ThemePreviewProvider::class) isDark: Boolean) {
+fun SpreadTheWordSectionPreview(@PreviewParameter(ThemePreviewProvider::class) isDark: Boolean) {
     PassTheme(isDark = isDark) {
         Surface {
-            HelpCenterProfileSection(
-                onFeedbackClick = {},
-                onImportExportClick = {},
-                onTutorialClick = {}
+            SpreadTheWordSection(
+                onTellAFriendClick = {},
+                onRateAppClick = {}
             )
         }
     }
