@@ -131,7 +131,6 @@ jobs:
           ./gradlew \
             --no-daemon \
             -Dorg.gradle.configuration-cache=false \
-            -Dorg.gradle.jvmargs="-Xms256m -Xmx4096m -XX:+UseG1GC -Dfile.encoding=UTF-8" \
             :app:assembleNogmsProdRelease
 
       - name: Verify release APK
