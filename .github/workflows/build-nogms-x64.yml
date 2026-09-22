@@ -131,6 +131,7 @@ jobs:
           ./gradlew \
             --no-daemon \
             -Dorg.gradle.configuration-cache=false \
+            -x :app:uploadSentryProguardMappingsNogmsProdRelease \
             :app:assembleNogmsProdRelease
 
       - name: Verify release APK
