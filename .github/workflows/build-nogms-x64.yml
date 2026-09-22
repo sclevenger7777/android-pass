@@ -1,0 +1,259 @@
+name: build-nogms-x64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'work/nogms-update-channel-v1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nogms-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UPSTREAM_BASE_SHA: cb4bc258f5b3e4091548a66215f3d23e3506366e
+  BUILD_VARIANT: nogmsProdDebug
+
+jobs:
+  build:
+    name: build-nogms-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout downstream source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Install Android command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export ANDROID_HOME="$HOME/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          rm -rf /tmp/android-cmdline-tools
+          mkdir -p /tmp/android-cmdline-tools
+
+          curl -L --fail --retry 3 \
+            "https://dl.google.com/android/repository/commandlinetools-linux-14742923_latest.zip" \
+            -o /tmp/android-cmdline-tools.zip
+
+          unzip -q /tmp/android-cmdline-tools.zip \
+            -d /tmp/android-cmdline-tools
+
+          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+
+          cp -a \
+            /tmp/android-cmdline-tools/cmdline-tools/. \
+            "$ANDROID_HOME/cmdline-tools/latest/"
+
+          printf 'ANDROID_HOME=%s\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+          printf 'ANDROID_SDK_ROOT=%s\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+
+          {
+            printf '%s\n' "$ANDROID_HOME/cmdline-tools/latest/bin"
+            printf '%s\n' "$ANDROID_HOME/platform-tools"
+            printf '%s\n' "$ANDROID_HOME/build-tools/36.0.0"
+          } >> "$GITHUB_PATH"
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Record Gradle environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+          printf '%s\n' '=== JAVA ==='
+          java -version
+
+          printf '%s\n' '=== GRADLE ==='
+          ./gradlew --version
+
+          printf '%s\n' '=== SOURCE ==='
+          git rev-parse HEAD
+
+      - name: Verify nogms runtime dependency boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p downstream-artifacts
+
+          ./gradlew \
+            --no-daemon \
+            -Dorg.gradle.configuration-cache=false \
+            :app:dependencies \
+            --configuration nogmsProdDebugRuntimeClasspath \
+            > downstream-artifacts/nogms-runtime-dependencies.txt
+
+          if grep -E \
+            'com\.google\.android\.gms:|com\.google\.android\.play:|com\.android\.billingclient:' \
+            downstream-artifacts/nogms-runtime-dependencies.txt
+          then
+            printf '%s\n' \
+              'FORBIDDEN_RUNTIME_DEPENDENCY_FOUND: nogms boundary violated.'
+            false
+          fi
+
+          printf '%s\n' \
+            'NOGMS_RUNTIME_DEPENDENCY_CHECK=PASS'
+
+      - name: Build nogmsProdDebug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            --no-daemon \
+            -Dorg.gradle.configuration-cache=false \
+            -Dorg.gradle.jvmargs="-Xms256m -Xmx4096m -XX:+UseG1GC -Dfile.encoding=UTF-8" \
+            :app:assembleNogmsProdDebug
+
+      - name: Verify APK and generate provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t APKS < <(
+            find app/build/outputs/apk \
+              -type f \
+              -name '*.apk' \
+              -print |
+            sort
+          )
+
+          printf 'APK_COUNT=%s\n' "${#APKS[@]}"
+
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            printf '%s\n' \
+              'Expected exactly one APK from assembleNogmsProdDebug.'
+
+            printf '%s\n' "${APKS[@]}"
+            false
+          fi
+
+          APK="${APKS[0]}"
+
+          PACKAGE_ID="$(
+            apkanalyzer manifest application-id "$APK"
+          )"
+
+          VERSION_NAME="$(
+            apkanalyzer manifest version-name "$APK"
+          )"
+
+          VERSION_CODE="$(
+            apkanalyzer manifest version-code "$APK"
+          )"
+
+          if [ "$PACKAGE_ID" != 'proton.android.pass' ]; then
+            printf 'Unexpected applicationId: %s\n' "$PACKAGE_ID"
+            false
+          fi
+
+          APK_SHA256="$(
+            sha256sum "$APK" |
+            awk '{print $1}'
+          )"
+
+          SIGNER_SHA256="$(
+            apksigner verify \
+              --verbose \
+              --print-certs \
+              "$APK" 2>&1 |
+            awk -F': ' \
+              '/certificate SHA-256 digest:/ {
+                 print $NF
+                 exit
+               }'
+          )"
+
+          if [ -z "$SIGNER_SHA256" ]; then
+            printf '%s\n' \
+              'Unable to determine APK signing certificate digest.'
+            false
+          fi
+
+          SAFE_VERSION="$(
+            printf '%s' "$VERSION_NAME" |
+            tr -c 'A-Za-z0-9._-' '_'
+          )"
+
+          SHORT_SHA="${GITHUB_SHA:0:12}"
+
+          FINAL_APK="downstream-artifacts/ProtonPass-nogmsProdDebug-${SAFE_VERSION}-${SHORT_SHA}.apk"
+
+          cp -- "$APK" "$FINAL_APK"
+
+          sha256sum "$FINAL_APK" \
+            > "${FINAL_APK}.sha256"
+
+          apksigner verify \
+            --verbose \
+            --print-certs \
+            "$FINAL_APK" \
+            > downstream-artifacts/APK-SIGNER.txt 2>&1
+
+          {
+            printf 'PROJECT=Proton Pass downstream nogms build\n'
+            printf 'OFFICIAL_PROTON_RELEASE=false\n'
+            printf 'REPOSITORY=%s\n' "$GITHUB_REPOSITORY"
+            printf 'UPSTREAM_REPOSITORY=protonpass/android-pass\n'
+            printf 'UPSTREAM_BASE_SHA=%s\n' "$UPSTREAM_BASE_SHA"
+            printf 'DOWNSTREAM_COMMIT_SHA=%s\n' "$GITHUB_SHA"
+            printf 'GITHUB_REF=%s\n' "$GITHUB_REF"
+            printf 'GITHUB_RUN_ID=%s\n' "$GITHUB_RUN_ID"
+            printf 'GITHUB_RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'BUILD_VARIANT=%s\n' "$BUILD_VARIANT"
+            printf 'APPLICATION_ID=%s\n' "$PACKAGE_ID"
+            printf 'VERSION_NAME=%s\n' "$VERSION_NAME"
+            printf 'VERSION_CODE=%s\n' "$VERSION_CODE"
+            printf 'APK_FILE=%s\n' "$(basename "$FINAL_APK")"
+            printf 'APK_SHA256=%s\n' "$APK_SHA256"
+            printf 'SIGNER_CERT_SHA256=%s\n' "$SIGNER_SHA256"
+            printf 'JAVA_VERSION=17\n'
+            printf 'ANDROID_COMPILE_SDK=36\n'
+            printf 'ANDROID_BUILD_TOOLS=36.0.0\n'
+          } > downstream-artifacts/PROVENANCE.txt
+
+          printf '%s\n' '=== PROVENANCE ==='
+          cat downstream-artifacts/PROVENANCE.txt
+
+          printf '%s\n' '=== APK SHA256 ==='
+          cat "${FINAL_APK}.sha256"
+
+          printf '%s\n' '=== SIGNER ==='
+          cat downstream-artifacts/APK-SIGNER.txt
+
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proton-pass-nogms-validation
+          path: downstream-artifacts/
+          if-no-files-found: error
+          retention-days: 14
