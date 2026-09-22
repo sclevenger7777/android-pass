@@ -2,24 +2,22 @@ name: build-nogms-x64
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'work/nogms-update-channel-v1'
 
 permissions:
   contents: read
 
 concurrency:
-  group: nogms-release-validation-${{ github.ref }}
-  cancel-in-progress: true
+  group: nogms-signed-release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   UPSTREAM_BASE_SHA: cb4bc258f5b3e4091548a66215f3d23e3506366e
   BUILD_VARIANT: nogmsProdRelease
+  SIGNING_ALIAS: proton-pass-downstream
 
 jobs:
   build:
-    name: build-nogms-release-validation
+    name: build-signed-nogms-release
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -115,13 +113,11 @@ jobs:
             'com\.google\.android\.gms:|com\.google\.android\.play:|com\.android\.billingclient:' \
             downstream-artifacts/nogms-release-runtime-dependencies.txt
           then
-            printf '%s\n' \
-              'FORBIDDEN_RUNTIME_DEPENDENCY_FOUND'
+            printf '%s\n' 'FORBIDDEN_RUNTIME_DEPENDENCY_FOUND'
             false
           fi
 
-          printf '%s\n' \
-            'NOGMS_RELEASE_DEPENDENCY_CHECK=PASS'
+          printf '%s\n' 'NOGMS_RELEASE_DEPENDENCY_CHECK=PASS'
 
       - name: Build nogmsProdRelease APK
         shell: bash
@@ -134,8 +130,58 @@ jobs:
             -x :app:uploadSentryProguardMappingsNogmsProdRelease \
             :app:assembleNogmsProdRelease
 
-      - name: Verify release APK
+      - name: Load downstream signing identity
         shell: bash
+        env:
+          NOGMS_SIGNING_KEYSTORE_B64: ${{ secrets.NOGMS_SIGNING_KEYSTORE_B64 }}
+          NOGMS_SIGNING_PASSWORD: ${{ secrets.NOGMS_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          test -n "${NOGMS_SIGNING_KEYSTORE_B64:-}" || {
+            printf '%s\n' 'MISSING_SECRET=NOGMS_SIGNING_KEYSTORE_B64'
+            exit 1
+          }
+
+          test -n "${NOGMS_SIGNING_PASSWORD:-}" || {
+            printf '%s\n' 'MISSING_SECRET=NOGMS_SIGNING_PASSWORD'
+            exit 1
+          }
+
+          KEYSTORE="$RUNNER_TEMP/proton-pass-downstream.p12"
+
+          printf '%s' "$NOGMS_SIGNING_KEYSTORE_B64" |
+            base64 --decode > "$KEYSTORE"
+
+          chmod 600 "$KEYSTORE"
+
+          EXPECTED_SIGNER_SHA256="$(
+            keytool -exportcert \
+              -keystore "$KEYSTORE" \
+              -storetype PKCS12 \
+              -alias "$SIGNING_ALIAS" \
+              -storepass:env NOGMS_SIGNING_PASSWORD \
+              -rfc |
+            openssl x509 \
+              -noout \
+              -fingerprint \
+              -sha256 |
+            sed 's/^.*=//' |
+            tr -d ':' |
+            tr 'A-F' 'a-f'
+          )"
+
+          test -n "$EXPECTED_SIGNER_SHA256"
+
+          printf 'SIGNING_KEYSTORE=%s\n' "$KEYSTORE" >> "$GITHUB_ENV"
+          printf 'EXPECTED_SIGNER_SHA256=%s\n' "$EXPECTED_SIGNER_SHA256" >> "$GITHUB_ENV"
+
+          printf 'EXPECTED_SIGNER_SHA256=%s\n' "$EXPECTED_SIGNER_SHA256"
+
+      - name: Sign and verify downstream release APK
+        shell: bash
+        env:
+          NOGMS_SIGNING_PASSWORD: ${{ secrets.NOGMS_SIGNING_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -150,24 +196,23 @@ jobs:
           printf 'APK_COUNT=%s\n' "${#APKS[@]}"
 
           if [ "${#APKS[@]}" -ne 1 ]; then
-            printf '%s\n' \
-              'Expected exactly one APK from assembleNogmsProdRelease.'
+            printf '%s\n' 'Expected exactly one APK from assembleNogmsProdRelease.'
             printf '%s\n' "${APKS[@]}"
             false
           fi
 
-          APK="${APKS[0]}"
+          INPUT_APK="${APKS[0]}"
 
           PACKAGE_ID="$(
-            apkanalyzer manifest application-id "$APK"
+            apkanalyzer manifest application-id "$INPUT_APK"
           )"
 
           VERSION_NAME="$(
-            apkanalyzer manifest version-name "$APK"
+            apkanalyzer manifest version-name "$INPUT_APK"
           )"
 
           VERSION_CODE="$(
-            apkanalyzer manifest version-code "$APK"
+            apkanalyzer manifest version-code "$INPUT_APK"
           )"
 
           if [ "$PACKAGE_ID" != 'proton.android.pass' ]; then
@@ -175,43 +220,20 @@ jobs:
             false
           fi
 
-          apkanalyzer manifest print "$APK" \
+          apkanalyzer manifest print "$INPUT_APK" \
             > downstream-artifacts/AndroidManifest.xml
 
           if grep -Eq \
             'android:debuggable="true"' \
             downstream-artifacts/AndroidManifest.xml
           then
-            printf '%s\n' \
-              'RELEASE_DEBUGGABLE_CHECK=FAIL'
+            printf '%s\n' 'RELEASE_DEBUGGABLE_CHECK=FAIL'
             false
           fi
 
-          printf '%s\n' \
-            'RELEASE_DEBUGGABLE_CHECK=PASS'
+          printf '%s\n' 'RELEASE_DEBUGGABLE_CHECK=PASS'
 
-          APK_SHA256="$(
-            sha256sum "$APK" |
-            awk '{print $1}'
-          )"
-
-          SIGNER_SHA256="$(
-            apksigner verify \
-              --verbose \
-              --print-certs \
-              "$APK" 2>&1 |
-            awk -F': ' \
-              '/certificate SHA-256 digest:/ {
-                 print $NF
-                 exit
-               }'
-          )"
-
-          if [ -z "$SIGNER_SHA256" ]; then
-            printf '%s\n' \
-              'Unable to determine APK signing certificate digest.'
-            false
-          fi
+          zipalign -c -P 16 4 "$INPUT_APK"
 
           SAFE_VERSION="$(
             printf '%s' "$VERSION_NAME" |
@@ -219,19 +241,65 @@ jobs:
           )"
 
           SHORT_SHA="${GITHUB_SHA:0:12}"
-
           FINAL_APK="downstream-artifacts/ProtonPass-nogmsProdRelease-${SAFE_VERSION}-${SHORT_SHA}.apk"
 
-          cp -- "$APK" "$FINAL_APK"
-
-          sha256sum "$FINAL_APK" \
-            > "${FINAL_APK}.sha256"
+          apksigner sign \
+            --ks "$SIGNING_KEYSTORE" \
+            --ks-type PKCS12 \
+            --ks-key-alias "$SIGNING_ALIAS" \
+            --ks-pass env:NOGMS_SIGNING_PASSWORD \
+            --key-pass env:NOGMS_SIGNING_PASSWORD \
+            --v1-signing-enabled false \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --v4-signing-enabled false \
+            --out "$FINAL_APK" \
+            "$INPUT_APK"
 
           apksigner verify \
             --verbose \
             --print-certs \
             "$FINAL_APK" \
             > downstream-artifacts/APK-SIGNER.txt 2>&1
+
+          SIGNER_COUNT="$(
+            awk -F': ' \
+              '/Number of signers:/ {
+                 print $NF
+                 exit
+               }' \
+              downstream-artifacts/APK-SIGNER.txt
+          )"
+
+          SIGNER_SHA256="$(
+            awk -F': ' \
+              '/certificate SHA-256 digest:/ {
+                 print $NF
+                 exit
+               }' \
+              downstream-artifacts/APK-SIGNER.txt
+          )"
+
+          if [ "$SIGNER_COUNT" != '1' ]; then
+            printf 'SIGNER_COUNT_CHECK=FAIL actual=%s\n' "$SIGNER_COUNT"
+            false
+          fi
+
+          if [ "$SIGNER_SHA256" != "$EXPECTED_SIGNER_SHA256" ]; then
+            printf 'SIGNER_IDENTITY_CHECK=FAIL\n'
+            printf 'expected=%s\n' "$EXPECTED_SIGNER_SHA256"
+            printf 'actual=%s\n' "$SIGNER_SHA256"
+            false
+          fi
+
+          printf '%s\n' 'SIGNER_IDENTITY_CHECK=PASS'
+
+          APK_SHA256="$(
+            sha256sum "$FINAL_APK" |
+            awk '{print $1}'
+          )"
+
+          sha256sum "$FINAL_APK" > "${FINAL_APK}.sha256"
 
           {
             printf 'PROJECT=Proton Pass downstream nogms build\n'
@@ -248,7 +316,9 @@ jobs:
             printf 'APK_FILE=%s\n' "$(basename "$FINAL_APK")"
             printf 'APK_SHA256=%s\n' "$APK_SHA256"
             printf 'SIGNER_CERT_SHA256=%s\n' "$SIGNER_SHA256"
+            printf 'SIGNER_ALIAS=%s\n' "$SIGNING_ALIAS"
             printf 'RELEASE_DEBUGGABLE=false\n'
+            printf 'NOGMS_DEPENDENCY_CHECK=PASS\n'
             printf 'JAVA_VERSION=17\n'
             printf 'ANDROID_COMPILE_SDK=36\n'
             printf 'ANDROID_BUILD_TOOLS=36.0.0\n'
@@ -257,10 +327,13 @@ jobs:
           printf '%s\n' '=== PROVENANCE ==='
           cat downstream-artifacts/PROVENANCE.txt
 
-      - name: Upload release validation artifact
+          printf '%s\n' '=== APK SIGNER ==='
+          cat downstream-artifacts/APK-SIGNER.txt
+
+      - name: Upload signed release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: proton-pass-nogms-release-validation
+          name: proton-pass-nogms-signed-release
           path: downstream-artifacts/
           if-no-files-found: error
           retention-days: 14
