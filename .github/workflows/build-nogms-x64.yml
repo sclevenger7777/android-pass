@@ -10,16 +10,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: nogms-validation-${{ github.ref }}
+  group: nogms-release-validation-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   UPSTREAM_BASE_SHA: cb4bc258f5b3e4091548a66215f3d23e3506366e
-  BUILD_VARIANT: nogmsProdDebug
+  BUILD_VARIANT: nogmsProdRelease
 
 jobs:
   build:
-    name: build-nogms-validation
+    name: build-nogms-release-validation
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -81,7 +81,7 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Record Gradle environment
+      - name: Configure Android SDK
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +97,7 @@ jobs:
           printf '%s\n' '=== SOURCE ==='
           git rev-parse HEAD
 
-      - name: Verify nogms runtime dependency boundary
+      - name: Verify nogms release dependency boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -108,22 +108,22 @@ jobs:
             --no-daemon \
             -Dorg.gradle.configuration-cache=false \
             :app:dependencies \
-            --configuration nogmsProdDebugRuntimeClasspath \
-            > downstream-artifacts/nogms-runtime-dependencies.txt
+            --configuration nogmsProdReleaseRuntimeClasspath \
+            > downstream-artifacts/nogms-release-runtime-dependencies.txt
 
           if grep -E \
             'com\.google\.android\.gms:|com\.google\.android\.play:|com\.android\.billingclient:' \
-            downstream-artifacts/nogms-runtime-dependencies.txt
+            downstream-artifacts/nogms-release-runtime-dependencies.txt
           then
             printf '%s\n' \
-              'FORBIDDEN_RUNTIME_DEPENDENCY_FOUND: nogms boundary violated.'
+              'FORBIDDEN_RUNTIME_DEPENDENCY_FOUND'
             false
           fi
 
           printf '%s\n' \
-            'NOGMS_RUNTIME_DEPENDENCY_CHECK=PASS'
+            'NOGMS_RELEASE_DEPENDENCY_CHECK=PASS'
 
-      - name: Build nogmsProdDebug APK
+      - name: Build nogmsProdRelease APK
         shell: bash
         run: |
           set -euo pipefail
@@ -132,9 +132,9 @@ jobs:
             --no-daemon \
             -Dorg.gradle.configuration-cache=false \
             -Dorg.gradle.jvmargs="-Xms256m -Xmx4096m -XX:+UseG1GC -Dfile.encoding=UTF-8" \
-            :app:assembleNogmsProdDebug
+            :app:assembleNogmsProdRelease
 
-      - name: Verify APK and generate provenance
+      - name: Verify release APK
         shell: bash
         run: |
           set -euo pipefail
@@ -151,8 +151,7 @@ jobs:
 
           if [ "${#APKS[@]}" -ne 1 ]; then
             printf '%s\n' \
-              'Expected exactly one APK from assembleNogmsProdDebug.'
-
+              'Expected exactly one APK from assembleNogmsProdRelease.'
             printf '%s\n' "${APKS[@]}"
             false
           fi
@@ -175,6 +174,21 @@ jobs:
             printf 'Unexpected applicationId: %s\n' "$PACKAGE_ID"
             false
           fi
+
+          apkanalyzer manifest print "$APK" \
+            > downstream-artifacts/AndroidManifest.xml
+
+          if grep -Eq \
+            'android:debuggable="true"' \
+            downstream-artifacts/AndroidManifest.xml
+          then
+            printf '%s\n' \
+              'RELEASE_DEBUGGABLE_CHECK=FAIL'
+            false
+          fi
+
+          printf '%s\n' \
+            'RELEASE_DEBUGGABLE_CHECK=PASS'
 
           APK_SHA256="$(
             sha256sum "$APK" |
@@ -206,7 +220,7 @@ jobs:
 
           SHORT_SHA="${GITHUB_SHA:0:12}"
 
-          FINAL_APK="downstream-artifacts/ProtonPass-nogmsProdDebug-${SAFE_VERSION}-${SHORT_SHA}.apk"
+          FINAL_APK="downstream-artifacts/ProtonPass-nogmsProdRelease-${SAFE_VERSION}-${SHORT_SHA}.apk"
 
           cp -- "$APK" "$FINAL_APK"
 
@@ -226,9 +240,7 @@ jobs:
             printf 'UPSTREAM_REPOSITORY=protonpass/android-pass\n'
             printf 'UPSTREAM_BASE_SHA=%s\n' "$UPSTREAM_BASE_SHA"
             printf 'DOWNSTREAM_COMMIT_SHA=%s\n' "$GITHUB_SHA"
-            printf 'GITHUB_REF=%s\n' "$GITHUB_REF"
             printf 'GITHUB_RUN_ID=%s\n' "$GITHUB_RUN_ID"
-            printf 'GITHUB_RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
             printf 'BUILD_VARIANT=%s\n' "$BUILD_VARIANT"
             printf 'APPLICATION_ID=%s\n' "$PACKAGE_ID"
             printf 'VERSION_NAME=%s\n' "$VERSION_NAME"
@@ -236,6 +248,7 @@ jobs:
             printf 'APK_FILE=%s\n' "$(basename "$FINAL_APK")"
             printf 'APK_SHA256=%s\n' "$APK_SHA256"
             printf 'SIGNER_CERT_SHA256=%s\n' "$SIGNER_SHA256"
+            printf 'RELEASE_DEBUGGABLE=false\n'
             printf 'JAVA_VERSION=17\n'
             printf 'ANDROID_COMPILE_SDK=36\n'
             printf 'ANDROID_BUILD_TOOLS=36.0.0\n'
@@ -244,16 +257,10 @@ jobs:
           printf '%s\n' '=== PROVENANCE ==='
           cat downstream-artifacts/PROVENANCE.txt
 
-          printf '%s\n' '=== APK SHA256 ==='
-          cat "${FINAL_APK}.sha256"
-
-          printf '%s\n' '=== SIGNER ==='
-          cat downstream-artifacts/APK-SIGNER.txt
-
-      - name: Upload validation artifact
+      - name: Upload release validation artifact
         uses: actions/upload-artifact@v4
         with:
-          name: proton-pass-nogms-validation
+          name: proton-pass-nogms-release-validation
           path: downstream-artifacts/
           if-no-files-found: error
           retention-days: 14
